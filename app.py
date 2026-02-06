@@ -15,15 +15,14 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, "static", "uploads")
 MODEL_PATH = os.path.join(BASE_DIR, "model", "blood_cell_model.h5")
 
-# Create upload folder if not exists
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
 # -----------------------------
-# Load Trained Model
+# Lazy Load Model (IMPORTANT)
 # -----------------------------
-model = load_model(MODEL_PATH)
+model = None
 
 # ⚠️ ORDER MUST MATCH TRAINING
 class_names = [
@@ -40,6 +39,7 @@ class_names = [
 @app.route("/")
 def index():
     return render_template("index.html")
+
 @app.route("/about")
 def about():
     return render_template("about.html")
@@ -52,6 +52,12 @@ def contact():
 @app.route("/predict", methods=["POST"])
 def predict():
 
+    global model
+
+    # Load model only when needed
+    if model is None:
+        model = load_model(MODEL_PATH)
+
     if "image" not in request.files:
         return redirect(url_for("index"))
 
@@ -60,11 +66,9 @@ def predict():
     if file.filename == "":
         return redirect(url_for("index"))
 
-    # Safe filename (FIXED LINE ✅)
     filename = secure_filename(file.filename)
     filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
 
-    # Save image
     file.save(filepath)
 
     # -----------------------------
@@ -81,26 +85,21 @@ def predict():
     predictions = model.predict(img_array)[0]
 
     results = {
-    "Neutrophil": float(round(predictions[3] * 100, 2)),
-    "Lymphocyte": float(round(predictions[1] * 100, 2)),
-    "Monocyte": float(round(predictions[2] * 100, 2)),
-    "Eosinophil": float(round(predictions[0] * 100, 2))
-}
+        "Neutrophil": float(round(predictions[3] * 100, 2)),
+        "Lymphocyte": float(round(predictions[1] * 100, 2)),
+        "Monocyte": float(round(predictions[2] * 100, 2)),
+        "Eosinophil": float(round(predictions[0] * 100, 2))
+    }
 
-
-    # Dominant cell
     max_cell = max(results, key=results.get)
     max_value = results[max_cell]
 
-    # If model predicts "Others"
     predicted_index = np.argmax(predictions)
+
     if class_names[predicted_index] == "Others":
         max_cell = "Invalid Image (Not a Blood Cell)"
         max_value = round(predictions[predicted_index] * 100, 2)
 
-    # -----------------------------
-    # Send to Result Page
-    # -----------------------------
     return render_template(
         "result.html",
         image=filename,
@@ -109,9 +108,8 @@ def predict():
         max_value=max_value
     )
 
-
 # -----------------------------
 # Run Server
 # -----------------------------
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run()
